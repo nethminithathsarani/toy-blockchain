@@ -15,6 +15,7 @@ func TestMiningDifficulty(t *testing.T) {
 		"Alice",
 		"Bob",
 		20,
+		1,
 	)
 
 	if !bc.AddTransaction(tx) {
@@ -52,6 +53,7 @@ func TestRejectPendingDoubleSpend(t *testing.T) {
 		"Alice",
 		"Bob",
 		80,
+		1,
 	)) {
 		t.Fatal("expected first transaction to be accepted")
 	}
@@ -61,6 +63,7 @@ func TestRejectPendingDoubleSpend(t *testing.T) {
 		"Alice",
 		"Bob",
 		30,
+		2,
 	)) {
 		t.Fatal("expected overspending transaction to be rejected")
 	}

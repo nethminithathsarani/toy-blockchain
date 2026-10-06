@@ -15,6 +15,7 @@ func TestSaveAndLoadPreservesBalances(t *testing.T) {
 		"Alice",
 		"Bob",
 		25,
+		1,
 	)) {
 		t.Fatal("expected transaction to be accepted")
 	}

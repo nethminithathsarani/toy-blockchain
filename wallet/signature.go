@@ -1,33 +1,15 @@
 package wallet
 
-import (
-	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-)
+import "crypto/ed25519"
 
-func Sign(data string, privateKey *ecdsa.PrivateKey) (string, error) {
-
-	hash := sha256.Sum256([]byte(data))
-
-	r, s, err := ecdsa.Sign(
-		rand.Reader,
+func Sign(
+	data string,
+	privateKey ed25519.PrivateKey,
+) (string, error) {
+	signature := SignEd25519(
+		[]byte(data),
 		privateKey,
-		hash[:],
 	)
 
-	if err != nil {
-		return "", err
-	}
-
-	rBytes := make([]byte, 32)
-	sBytes := make([]byte, 32)
-
-	r.FillBytes(rBytes)
-	s.FillBytes(sBytes)
-
-	signature := append(rBytes, sBytes...)
-
-	return hex.EncodeToString(signature), nil
+	return signature, nil
 }

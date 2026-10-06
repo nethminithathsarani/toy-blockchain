@@ -17,6 +17,7 @@ func createSignedTransaction(
 	sender string,
 	receiver string,
 	amount int,
+	nonce int,
 ) ledger.Transaction {
 
 	if _, exists := wallet.Wallets[sender]; !exists {
@@ -34,6 +35,7 @@ func createSignedTransaction(
 		Sender:   sender,
 		Receiver: receiver,
 		Amount:   amount,
+		Nonce:    nonce,
 	}
 
 	signed, err := wallet.SignTransaction(tx, wallet.Wallets[sender])

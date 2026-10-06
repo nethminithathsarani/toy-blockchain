@@ -19,6 +19,7 @@ func TestDoubleSpendPrevention(t *testing.T) {
 		"Alice",
 		"Bob",
 		80,
+		1,
 	)
 
 	tx2 := createSignedTransaction(
@@ -26,6 +27,7 @@ func TestDoubleSpendPrevention(t *testing.T) {
 		"Alice",
 		"Charlie",
 		80,
+		2,
 	)
 
 	bc.AddTransaction(tx1)

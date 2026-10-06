@@ -1,153 +1,83 @@
-# Toy Blockchain and Ledger Simulator
+# Networked Toy Blockchain
 
-A command-line blockchain simulator developed using **Go 1.22+** as part of a Software Engineering Internship assessment.
+A networked toy blockchain developed in **Go 1.22+** for the Golang Developer Assessment 2.
 
-This project demonstrates core blockchain concepts including block creation, SHA-256 hashing, Proof of Work mining, transaction validation, ledger management, digital signatures, Merkle roots, dynamic difficulty adjustment, fork resolution, blockchain validation, persistence, and testing.
+The project extends the original single-process blockchain simulator into a multi-node HTTP network supporting Ed25519-signed transactions, transaction and block gossip, de-duplication, synchronization, fork resolution, chain reorganization, and race-free shared state.
 
----
-
-## Features
+## Main Features
 
 ### Blockchain
 
-- Genesis block creation
 - Deterministic genesis block
-- Block linking using previous block hashes
-- SHA-256 hash generation
-- Structured hash calculation
-- Blockchain validation
+- SHA-256 block hashing
+- Previous-hash block linking
+- Proof-of-Work mining
+- Concurrent mining using goroutines
+- Merkle roots and transaction inclusion proofs
+- Difficulty adjustment
+- Full-chain validation
 - Tamper detection
-- Detailed validation error reporting
-- Validation after loading blockchain data
-- Merkle root based transaction summarization
-- Automatic difficulty retargeting
-- Fork resolution using longest valid chain rule
+- Cumulative Proof-of-Work chain selection
 
-### Proof of Work
+### Transactions and Wallets
 
-- Configurable mining difficulty
-- Automatic difficulty adjustment based on block generation time
-- Nonce-based mining
-- Hash difficulty verification
-- Mining attempt count reporting
-- Mining execution time reporting
-
-### Transactions and Ledger
-
-- Transaction model with sender, receiver, and amount
-- Integer-based transaction amounts
-- Pending transaction pool
-- Transaction validation
-- Balance calculation from blockchain history
+- Ed25519 public/private key pairs
+- Public-key-derived sender addresses
+- Signed transactions
+- Deterministic transaction IDs
+- Per-sender transaction nonces
+- Replay-attack protection
+- Pending-pool validation
 - Double-spending prevention
-- Ledger state derived from blockchain data
+- Integer-based account balances
 
-### Digital Signatures and Wallets
+### Networking
 
-- ECDSA key pair generation
-- Wallet creation and storage
-- Transaction signing using private keys
-- Signature verification using public keys
-- Invalid signature rejection
-- Cryptographic transaction authentication
-
-### Persistence
-
-- Save blockchain data into JSON format
-- Load blockchain data from JSON file
-- Validate blockchain after loading
-- Maintain blockchain state after restarting application
-
-### Testing
-
-Implemented tests for:
-
-- Hash generation
-- Merkle root calculation
-- Blockchain validation
-- Tamper detection
-- Mining difficulty
-- Concurrent mining
-- Difficulty retargeting
-- Fork resolution
-- Ledger validation
-- Persistence
-- Double-spending prevention
-- Digital signature verification
-
----
-
-## Project Structure
-
-```
+- Independent HTTP blockchain nodes
+- Configurable node addresses and peers
+- Transaction gossip
+- Block gossip
+- Transaction and block de-duplication
+- Peer forwarding with timeouts
+- Three-node local cluster launcher
+- Peer discovery from a single seed
+- Two-way peer registration
+- Duplicate and self-peer prevention
+- Docker Compose three-node cluster
+- Separate listen and advertised node addresses
+- Container health checks
 
 
----toy-blockchain/
-│
-├── main.go
-├── go.mod
-├── README.md
-├── REPORT.md
-│
-├── block/
-│   ├── block.go
-│   ├── hash.go
-│   ├── hash_test.go
-│   ├── merkle.go
-│   └── merkle_test.go
-│
-├── blockchain/
-│   ├── blockchain.go
-│   ├── balance.go
-│   ├── balance_validation.go
-│   ├── mining.go
-│   ├── concurrent.go
-│   ├── difficulty.go
-│   ├── fork.go
-│   ├── validate.go
-│   ├── storage.go
-│   ├── print.go
-│   ├── test_helpers.go
-│   │
-│   ├── mining_test.go
-│   ├── concurrent_mining_test.go
-│   ├── difficulty_test.go
-│   ├── fork_test.go
-│   ├── double_spend_test.go
-│   ├── signature_test.go
-│   ├── storage_test.go
-│   ├── tamper_test.go
-│   └── validate_test.go
-│
-├── ledger/
-│   ├── ledger.go
-│   ├── transaction.go
-│   └── ledger_test.go
-│
-└── wallet/
-    ├── wallet.go
-    ├── storage.go
-    ├── store.go
-    ├── signature.go
-    ├── verify.go
-    ├── transaction.go
-    ├── transaction_verify.go
-    └── signature_test.go
-```
+### Synchronization and Reorganization
 
----
+- New-node synchronization
+- Missing-block downloads
+- Behind-node catch-up
+- Competing-chain detection
+- Cumulative-work fork selection
+- Full candidate-chain validation
+- Ledger rebuilding after reorganization
+- Valid orphaned transactions returned to the pending pool
+
+### Concurrency Safety
+
+- `sync.RWMutex` protects shared node state
+- Read locks for introspection endpoints
+- Write locks for transactions, mining, synchronization and reorganization
+- Network communication occurs after releasing blockchain locks
+- Verified using Go’s race detector
 
 ## Requirements
 
 - Go 1.22 or later
+- PowerShell for the provided Windows cluster launcher
+- WSL/Linux recommended for running the Go race detector on Windows
 
-Check Go installation:
+Check Go:
 
 ```bash
 go version
 ```
-
----
 
 ## Installation
 
@@ -155,277 +85,465 @@ Clone the repository:
 
 ```bash
 git clone <repository-url>
-```
-
-Navigate into the project:
-
-```bash
 cd toy-blockchain
 ```
 
-Install dependencies:
+Verify the project:
 
 ```bash
 go mod tidy
+go test ./...
 ```
 
----
+## Creating Wallets
 
-## Running the Application
-
-### Add a Transaction
-
-Command:
+Create wallets before submitting transactions:
 
 ```bash
-go run . add Alice Bob 20
+go run . wallet Alice
+go run . wallet Bob
 ```
 
-Example output:
+Wallet files contain private keys and must not be committed or shared.
 
-```
-Transaction added
-```
+## Running One Node
 
-The transaction is added to the pending transaction pool.
-
-### Mine Pending Transactions
-
-Command:
+Start a node on port `8001`:
 
 ```bash
-go run . mine
+go run . node -address localhost:8001
 ```
 
-During mining:
-
-- Pending transactions are validated
-- A new block is created
-- Proof of Work is performed
-- The mined block is added to the blockchain
-- Blockchain data is saved to `chain.json`
-
-Example output:
-
-```
-Starting concurrent mining with 4 workers
-Worker <id> found nonce: <nonce>
-Mining attempts: <number>
-Mining time: <duration>
-Mining completed
-```
-
-### Print Blockchain
-
-Command:
+Start another node with Node 8001 as a peer:
 
 ```bash
-go run . print
+go run . node -address localhost:8002 -peers localhost:8001
 ```
 
-Displays:
+A node attempts initial synchronization with its configured peers before starting its HTTP server. If peers are unavailable, it logs the error and still starts.
 
-- Block index
-- Transactions
-- Nonce
-- Previous hash
-- Block hash
+## Running the Three-Node Cluster
 
-Example output:
+The project includes:
 
-```
-Index: 1
-Transactions: [{Alice Bob 20 <signature-hex> <public-key-hex>}]
-Nonce: 1618
-Previous Hash: ...
-Hash: 0000....
+```text
+start-cluster.ps1
 ```
 
-(Each transaction also carries its ECDSA signature and the sender's public key, so the real output is longer than shown here.)
+Run:
 
-### Validate Blockchain
+```powershell
+.\start-cluster.ps1
+```
 
-Command:
+If PowerShell blocks the script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-cluster.ps1
+```
+## Running the Cluster with Docker Compose
+
+Requirements:
+
+* Docker Desktop
+* Docker Compose v2
+
+Build and start all three nodes:
 
 ```bash
-go run . validate
+docker compose up --build -d
 ```
 
-Example output:
-
-```
-Blockchain is valid
-```
-
-If validation fails:
-
-```
-Blockchain is invalid: block 2: invalid hash
-```
-
-Validation checks:
-
-- Hash correctness
-- Previous block connection
-- Block order
-- Timestamp order
-- Proof of Work difficulty
-- Transaction balance validity
-- Merkle root correctness
-
-### View Balances
-
-Command:
+Check container health:
 
 ```bash
-go run . balance
+docker compose ps
 ```
 
-Example output:
+View network logs:
 
-```
-Balances: map[Alice:80 Bob:120 Charlie:100]
-```
-
-Balances are calculated from blockchain transaction history.
-
----
-## Concurrent Mining
-
-The blockchain supports concurrent Proof of Work mining using Go goroutines.
-
-Implementation details:
-- Multiple workers search different nonce ranges.
-- context cancellation stops remaining workers after a valid nonce is found.
-- atomic counters track mining attempts.
-- mutex protects shared mining results.
-
----
-
-## Example Workflow
-
-1. Add transaction
-
-   ```bash
-   go run . add Alice Bob 20
-   ```
-
-2. Mine transaction
-
-   ```bash
-   go run . mine
-   ```
-
-3. View blockchain
-
-   ```bash
-   go run . print
-   ```
-
-4. Validate blockchain
-
-   ```bash
-   go run . validate
-   ```
-
-5. View balances
-
-   ```bash
-   go run . balance
-   ```
-
----
-
-## How It Works
-
-1. A user creates a transaction.
-2. The transaction is stored in the pending transaction pool.
-3. Pending transactions are validated before mining.
-4. Transactions are verified including digital signatures.
-5. A Merkle root is calculated from block transactions.
-6. A new block is created containing the Merkle root and difficulty.
-7. Proof of Work searches for a valid nonce.
-8. The mined block is added to the blockchain.
-9. Difficulty is adjusted automatically based on mining speed.
-10. Blockchain data is stored in chain.json.
-11. When restarting, blockchain data is loaded and validated.
-12. Competing chains can be resolved using the longest valid chain rule.
-
----
-
-## Proof of Work
-
-This project uses a simple Proof of Work algorithm.
-
-Mining changes the block nonce until the SHA-256 hash satisfies the required difficulty.
-
-Example (difficulty: 4), a valid hash:
-
-```
-00005a1bbfe0f1f8139082808cb1357da5bf6acf0825b988920a87c3276e238a
+```bash
+docker compose logs
 ```
 
-Higher difficulty requires more mining attempts.
+The services are available from the host at:
 
----
+| Node   | Host API                | Docker advertised address |
+| ------ | ----------------------- | ------------------------- |
+| Node A | `http://localhost:8001` | `node-a:8001`             |
+| Node B | `http://localhost:8002` | `node-b:8002`             |
+| Node C | `http://localhost:8003` | `node-c:8003`             |
 
-## Persistence
+Node C is configured with only Node A as its seed. It discovers Node B and registers itself with both existing nodes.
 
-Blockchain data is stored in:
+Stop and remove the cluster containers and temporary network:
 
+```bash
+docker compose down
 ```
-chain.json
+
+The Docker image is built using a multi-stage `Dockerfile` and runs the final application as a non-root user. Private wallet files, generated chain data and Git history are excluded through `.dockerignore`.
+
+## Peer Discovery
+
+A new node needs only one seed address. It requests the seed node's peer list, safely adds unknown addresses and continues discovery through newly learned peers.
+
+The new node also registers its own address with every peer it contacts. This allows existing nodes to learn about the joining node and creates two-way connectivity.
+
+Example:
+
+```powershell
+go run . node `
+    -address localhost:8003 `
+    -peers localhost:8001
 ```
 
-The saved blockchain is loaded during application startup and validated before use.
+If Node A already knows Node B, Node C forms the following peer list automatically:
 
----
+```text
+Node C: [localhost:8001 localhost:8002]
+```
 
-## Running Tests
+The live three-node experiment produced:
 
-Run all tests:
+```text
+Node A: [localhost:8002 localhost:8003]
+Node B: [localhost:8001 localhost:8003]
+Node C: [localhost:8001 localhost:8002]
+```
+
+Peer-list access uses the node's read/write mutex. Gossip and synchronization operate on safe snapshots so network requests do not hold the mutex.
+
+The script starts:
+
+| Node | Address | Initial peers |
+|---|---|---|
+| Node A | `localhost:8001` | `8002`, `8003` |
+| Node B | `localhost:8002` | `8001`, `8003` |
+| Node C | `localhost:8003` | `8001`, `8002` |
+
+Stop each node using `Ctrl + C`.
+
+## Submitting a Network Transaction
+
+Submit an Ed25519-signed transaction to Node A:
+
+```bash
+go run . submit localhost:8001 Alice Bob 20
+```
+
+The command:
+
+1. Loads Alice’s wallet.
+2. Requests Alice’s next nonce from Node A.
+3. Creates and signs the transaction.
+4. Calculates its deterministic transaction ID.
+5. Sends it to `POST /transactions`.
+6. Allows the receiving node to validate and gossip it.
+
+Check all pending pools:
+
+```bash
+curl.exe http://localhost:8001/mempool
+curl.exe http://localhost:8002/mempool
+curl.exe http://localhost:8003/mempool
+```
+
+Expected before mining:
+
+```json
+{"size":1}
+```
+
+## Mining Through the Network
+
+Mine Node A’s pending transactions:
+
+```bash
+curl.exe -X POST http://localhost:8001/mine
+```
+
+The mined block is validated and forwarded to peers.
+
+Check node status:
+
+```bash
+curl.exe http://localhost:8001/status
+curl.exe http://localhost:8002/status
+curl.exe http://localhost:8003/status
+```
+
+All synchronized nodes should show the same height and head hash.
+
+After block acceptance, every pending pool should return:
+
+```json
+{"size":0}
+```
+
+## HTTP API
+
+### Read endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/status` | Return chain height and head hash |
+| `GET` | `/peers` | Return configured peers |
+| `GET` | `/mempool` | Return pending-pool size |
+| `GET` | `/balances` | Return confirmed balances |
+| `GET` | `/chain` | Return the complete blockchain |
+| `GET` | `/blocks?from=<index>` | Return blocks from an index |
+| `GET` | `/nonce?address=<address>` | Return a sender’s next nonce |
+| `GET` | `/merkle-proof?block=<index>&transaction=<id>` | Return a Merkle inclusion proof for one transaction |
+| `GET` | `/peers` | Return known peers |
+| `POST` | `/peers` | Register a node as a peer |
+
+## Merkle Inclusion Proofs
+
+Request proof that one transaction is included in a block:
+
+```bash
+curl.exe "http://localhost:8001/merkle-proof?block=1&transaction=<transaction-id>"
+```
+
+The response contains:
+
+* The block and transaction indexes
+* The complete transaction
+* The block's Merkle root
+* The neighboring hashes and their left/right positions
+* A `verified` result
+
+The proof allows the transaction to be checked against the block's Merkle root without downloading every transaction in that block. Changing any signed transaction field, including the amount or nonce, causes verification to fail.
+
+
+### State-changing endpoints
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/transactions` | Receive and gossip a signed transaction |
+| `POST` | `/blocks` | Receive and gossip an already-mined block |
+| `POST` | `/mine` | Mine pending transactions and gossip the block |
+
+HTTP data is encoded as JSON.
+
+## Transaction Validation Flow
+
+```text
+Receive transaction
+→ Recalculate transaction ID
+→ Check de-duplication map
+→ Verify public-key-derived address
+→ Verify Ed25519 signature
+→ Validate sender nonce
+→ Validate available balance
+→ Add to pending pool
+→ Forward to peers
+```
+
+The transaction ID prevents repeated network forwarding. The transaction nonce prevents replaying an already-authorized payment.
+
+## Block Validation Flow
+
+```text
+Receive block
+→ Check block-hash de-duplication
+→ Confirm index and previous hash
+→ Recalculate Merkle root and block hash
+→ Validate difficulty and Proof of Work
+→ Verify transaction IDs, signatures and nonces
+→ Validate balances
+→ Append block
+→ Remove confirmed pending transactions
+→ Forward to peers
+```
+
+Received blocks are validated but are not mined again.
+
+## Chain Synchronization
+
+When a node starts, it asks a peer for its height.
+
+If the peer is ahead on the same branch:
+
+```text
+Request missing blocks
+→ Validate each block in order
+→ Append each valid block
+```
+
+If the peer has a competing stronger branch:
+
+```text
+Download complete peer chain
+→ Validate candidate chain
+→ Compare cumulative Proof of Work
+→ Find fork point
+→ Adopt stronger valid chain
+→ Rebuild balances and pending transactions
+```
+
+## Fork Resolution and Reorganization
+
+The project selects a candidate chain only when it has more cumulative Proof of Work.
+
+Estimated work per block is:
+
+```text
+16 ^ difficulty
+```
+
+During reorganization:
+
+1. The last common block is identified.
+2. Removed local blocks become orphaned.
+3. The stronger candidate chain is validated and adopted.
+4. Confirmed balances are recalculated from the selected chain.
+5. Existing pending transactions are revalidated.
+6. Valid orphaned transactions not confirmed in the new chain return to the pending pool.
+
+Equal-work, weaker and invalid candidate chains are rejected.
+
+## CLI Commands
+
+```text
+wallet <name>
+add <sender> <receiver> <amount>
+submit <node-address> <sender> <receiver> <amount>
+mine
+print
+validate
+balance
+node -address <address> -peers <peer1,peer2>
+```
+
+The `add` and `mine` commands support the original local workflow.
+
+The `submit`, HTTP `/mine`, and `node` commands support the networked workflow.
+
+## Testing
+
+Run normal tests:
 
 ```bash
 go test ./...
 ```
 
-Example output:
+Run static analysis:
 
-```
-ok      toy-blockchain/block
-ok      toy-blockchain/blockchain
-ok      toy-blockchain/ledger
+```bash
+go vet ./...
 ```
 
----
+Run race detection:
 
-## Current Limitations
+```bash
+go test -race ./...
+```
 
-This project is created for educational purposes and does not include:
+On Windows, the race detector can be run through WSL:
 
-- Peer-to-peer networking
-- Multiple blockchain nodes communicating over a network
-- Production-level cryptographic key storage
-- Smart contracts
-- Real distributed consensus mechanisms
-- Fork resolution is currently available through the blockchain package API and automated tests rather than a direct CLI command.
+```bash
+cd /mnt/c/Users/<username>/toy-blockchain
+go test -race ./...
+```
 
----
+Tests cover:
 
-## Future Improvements
+- Deterministic hashing
+- Ed25519 signing and verification
+- Address generation
+- Transaction ID generation
+- Nonce and replay protection
+- Mining difficulty
+- Merkle roots and inclusion proofs
+- Tamper detection
+- Pending double-spending
+- Transaction de-duplication
+- Transaction gossip
+- Block gossip
+- Missing-block synchronization
+- Cumulative-work calculation
+- Fork resolution
+- Orphaned-transaction recovery
+- HTTP introspection endpoints
+- Race-free shared state
 
-Possible improvements:
+## Three-Node Experiment Result
 
-- Peer-to-peer blockchain networking
-- REST API support
-- Web interface
-- Multiple blockchain nodes
-- Production-level wallet security
-- Smart contract support
-- Advanced consensus mechanisms
+A transaction was submitted to Node `8001`.
 
----
+Before mining:
+
+```text
+Node 8001 mempool: 1
+Node 8002 mempool: 1
+Node 8003 mempool: 1
+```
+
+The transaction was mined through Node `8001`. All nodes reached height `1` and shared the same head hash:
+
+```text
+0000f6b4ae122cfa7c8701d01a177e5b8b309d3641792316ea2b7c221ad76293
+```
+
+After block propagation:
+
+```text
+Node 8001 mempool: 0
+Node 8002 mempool: 0
+Node 8003 mempool: 0
+```
+
+This demonstrates transaction gossip, block gossip, Proof-of-Work validation and network convergence.
+
+## Changes from Assessment 1
+
+Assessment 2 extends the original blockchain with:
+
+- ECDSA replaced by Ed25519
+- Public-key-derived addresses
+- Deterministic transaction IDs
+- Transaction nonces and replay protection
+- HTTP node service
+- Configurable peers and ports
+- Transaction and block gossip
+- De-duplication
+- Race-free shared state
+- New-node synchronization
+- Missing-block downloads
+- Cumulative-work chain selection
+- Reorganization and orphan recovery
+- Three-node cluster launcher
+
+## Persistence
+
+The original local CLI can save and load blockchain data using:
+
+```text
+chain.json
+```
+
+Generated chain and wallet files are excluded from version control.
+
+The running network nodes primarily maintain independent in-memory state. Complete per-node restart persistence and separate per-node data directories are not implemented.
+
+## Known Limitations
+
+This is an educational blockchain, not a production cryptocurrency.
+
+Current limitations include:
+
+
+- No automatic peer-health management
+- No encrypted peer communication
+- No authentication for administrative endpoints such as `/mine`
+- No transaction fees or mining rewards
+- No smart contracts
+- No production-grade private-key protection
+- No Byzantine-fault-tolerant consensus
+- Network nodes do not yet use separate persistent data directories
 
 ## Author
 
-Developed as part of a Software Engineering Internship take-home assessment using Go.
+Developed as part of a Software Engineering Internship Golang assessment.

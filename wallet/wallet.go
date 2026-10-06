@@ -1,35 +1,21 @@
 package wallet
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
+	"crypto/ed25519"
 	"encoding/hex"
 )
 
 type Wallet struct {
-	PrivateKey *ecdsa.PrivateKey
-	PublicKey  []byte
+	PrivateKey ed25519.PrivateKey
+	PublicKey  ed25519.PublicKey
 }
 
 func NewWallet() (*Wallet, error) {
-
-	privateKey, err := ecdsa.GenerateKey(
-		elliptic.P256(),
-		rand.Reader,
-	)
+	publicKey, privateKey, err := GenerateEd25519KeyPair()
 
 	if err != nil {
 		return nil, err
 	}
-
-	xBytes := make([]byte, 32)
-	yBytes := make([]byte, 32)
-
-	privateKey.PublicKey.X.FillBytes(xBytes)
-	privateKey.PublicKey.Y.FillBytes(yBytes)
-
-	publicKey := append(xBytes, yBytes...)
 
 	return &Wallet{
 		PrivateKey: privateKey,
@@ -38,7 +24,9 @@ func NewWallet() (*Wallet, error) {
 }
 
 func (w *Wallet) GetPublicKey() string {
-
 	return hex.EncodeToString(w.PublicKey)
+}
 
+func (w *Wallet) GetAddress() string {
+	return AddressFromPublicKey(w.PublicKey)
 }

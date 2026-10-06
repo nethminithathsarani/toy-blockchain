@@ -11,5 +11,8 @@ func (bc *Blockchain) PrintChain() {
 		fmt.Println("Nonce:", block.Nonce)
 		fmt.Println("Previous Hash:", block.PreviousHash)
 		fmt.Println("Hash:", block.Hash)
+		fmt.Println("Merkle Root:", block.MerkleRoot)
+		fmt.Println("Difficulty:", block.Difficulty)
+
 	}
 }

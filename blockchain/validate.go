@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"toy-blockchain/block"
+	"toy-blockchain/wallet"
 )
 
 func (bc *Blockchain) ValidateChain() error {
@@ -47,12 +48,36 @@ func (bc *Blockchain) ValidateChain() error {
 	// proof-of-work for anything loaded from a file or offered via
 	// ResolveFork.
 	expectedDifficulty := genesis.Difficulty
+	lastNonceBySender := make(map[string]int)
 
 	// Check remaining blocks
 	for i := 1; i < len(bc.Blocks); i++ {
 
 		current := bc.Blocks[i]
 		previous := bc.Blocks[i-1]
+		// Verify every transaction signature in the current block.
+		for txIndex, tx := range current.Transactions {
+			if !wallet.VerifyTransaction(tx) {
+				return fmt.Errorf(
+					"block %d transaction %d: invalid signature",
+					i,
+					txIndex,
+				)
+			}
+			expectedNonce := lastNonceBySender[tx.SenderAddress] + 1
+
+			if tx.Nonce != expectedNonce {
+				return fmt.Errorf(
+					"block %d transaction %d: invalid nonce %d, expected %d",
+					i,
+					txIndex,
+					tx.Nonce,
+					expectedNonce,
+				)
+			}
+
+			lastNonceBySender[tx.SenderAddress] = tx.Nonce
+		}
 
 		// Check Merkle root
 		calculatedRoot := block.CalculateMerkleRoot(current.Transactions)

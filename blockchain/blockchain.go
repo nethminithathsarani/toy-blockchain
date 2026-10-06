@@ -93,8 +93,9 @@ func (bc *Blockchain) MinePendingTransactions(l *ledger.Ledger) {
 	validTransactions := []ledger.Transaction{}
 
 	for _, tx := range bc.PendingTransactions {
+		if wallet.VerifyTransaction(tx) &&
+			tempLedger.ValidateTransaction(tx) {
 
-		if tempLedger.ValidateTransaction(tx) {
 			validTransactions = append(validTransactions, tx)
 			tempLedger.ApplyTransaction(tx)
 		}
@@ -115,6 +116,11 @@ func (bc *Blockchain) MinePendingTransactions(l *ledger.Ledger) {
 }
 func (bc *Blockchain) AddTransaction(t ledger.Transaction) bool {
 	if !wallet.VerifyTransaction(t) {
+		return false
+	}
+	expectedNonce := bc.NextNonce(t.SenderAddress)
+
+	if t.Nonce != expectedNonce {
 		return false
 	}
 	balances := CalculateBalances(bc.Blocks, bc.InitialBalances)

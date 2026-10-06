@@ -1,396 +1,730 @@
-# Toy Blockchain and Ledger Simulator
+# Networked Toy Blockchain
 
-## Software Engineering Internship Assessment Report
+## Golang Developer Assessment 2 Report
 
 ## 1. Introduction
 
-This project is a command-line based Toy Blockchain and Ledger Simulator developed using **Go 1.22+**.
+This project is a networked toy blockchain developed using Go 1.22+ as part of a Software Engineering Internship assessment.
 
-The objective of this project is to implement and demonstrate the fundamental concepts of blockchain technology, including block creation, cryptographic hashing, Proof of Work mining, transaction management, blockchain validation, persistence, and several stretch-goal features.
+Assessment 2 extends the original single-process blockchain and ledger simulator into a network of independently running HTTP nodes. The system supports Ed25519-signed transactions, transaction and block gossip, message de-duplication, blockchain synchronization, cumulative Proof-of-Work fork selection, chain reorganization, orphaned-transaction recovery and race-free shared state.
 
-The project was developed as part of a Software Engineering Internship assessment to demonstrate backend programming skills, system design, testing practices, and understanding of blockchain concepts.
+The main objective was to understand how separate blockchain nodes exchange, validate and agree on distributed state while continuing to treat all received network data as untrusted.
 
----
+## 2. Changes from Assessment 1
 
-# 2. Project Objectives
+The original project already supported:
 
-The main objectives of this project were:
+- SHA-256 block hashing
+- Deterministic genesis creation
+- Proof-of-Work mining
+- Concurrent mining
+- Merkle roots
+- Pending transactions
+- Ledger and balance validation
+- Double-spending prevention
+- Difficulty adjustment
+- Local fork resolution
+- JSON persistence
+- CLI commands and automated tests
 
-* Implement a basic blockchain structure
-* Create and validate blocks using SHA-256 hashing
-* Implement Proof of Work mining
-* Manage transactions and account balances
-* Prevent invalid transactions and double spending
-* Store and restore blockchain data
-* Implement cryptographic transaction signing
-* Improve blockchain efficiency using Merkle roots
-* Support concurrent mining
-* Implement dynamic difficulty adjustment
-* Resolve competing blockchain forks
+Assessment 2 introduced the following major changes:
 
----
+- ECDSA was replaced with Ed25519.
+- Sender addresses are derived from public keys.
+- Important transaction fields are signed using a deterministic JSON payload.
+- Per-sender transaction nonces prevent replay attacks.
+- Deterministic transaction IDs support network de-duplication.
+- The blockchain runs as an HTTP node with configurable peers.
+- Transactions and blocks are gossiped between nodes.
+- Nodes synchronize missing blocks from peers.
+- Competing branches are compared using cumulative Proof-of-Work.
+- Reorganization rebuilds confirmed balances and the pending pool.
+- Valid transactions from orphaned blocks return to the pending pool.
+- Shared node state is protected using `sync.RWMutex`.
+- A PowerShell launcher starts a three-node local cluster.
+- A multi-stage Docker image and Docker Compose launcher start the three-node network with one command.
+- Separate listen and advertised addresses support communication through Docker service names.
 
-# 3. Technologies Used
+## 3. System Design
 
-| Technology           | Purpose                           |
-| -------------------- | ---------------------------------- |
-| Go 1.22+              | Backend implementation            |
-| SHA-256               | Block hashing                     |
-| ECDSA                 | Digital signatures                |
-| JSON                  | Blockchain and wallet persistence |
-| Goroutines            | Concurrent mining                 |
-| Go Testing Framework  | Automated testing                 |
+### 3.1 Node architecture
 
----
+Each running node contains:
 
-# 4. System Components
-
-## 4.1 Block Module
-
-The block module represents individual blockchain blocks.
-
-Implemented features:
-
-* Block structure creation
-* SHA-256 hash generation
-* Previous block hash linking
-* Nonce storage for mining
-* Merkle root storage
-* Hash verification
-
-Each block contains:
-
-* Index
-* Timestamp
-* Transactions
-* Previous hash
-* Current hash
-* Nonce
-* Merkle root
-* Difficulty
-
----
-
-# 4.2 Blockchain Module
-
-The blockchain module manages the complete chain.
-
-Implemented features:
-
-* Genesis block creation
-* Deterministic genesis block
-* Adding new blocks
-* Blockchain validation
-* Chain persistence
-* Balance calculation
-* Fork resolution
-
-The blockchain validates:
-
-* Hash correctness
-* Merkle root correctness
-* Previous hash relationship
-* Block ordering
-* Timestamp ordering
-* Proof of Work difficulty
-* Transaction/balance validity
-
----
-
-# 4.3 Proof of Work Mining
-
-The project implements a Proof of Work consensus mechanism.
-
-Mining process:
-
-1. A block is created with pending transactions and a Merkle root.
-2. The nonce value is changed repeatedly.
-3. SHA-256 hash is calculated over the block's fields.
-4. Mining continues until the hash has at least `difficulty` leading hexadecimal zeros.
-
-Implemented features:
-
-* Configurable difficulty
-* Mining attempt counting
-* Mining time measurement
-* Concurrent mining support
-
----
-
-# 4.4 Concurrent Mining
-
-Concurrent mining was implemented using Go concurrency features.
-
-Implementation:
-
-* Multiple goroutines search different nonce ranges in parallel.
-* Each worker starts at its own worker ID and strides by the total worker count (worker 0 tries 0, 4, 8, 12…; worker 1 tries 1, 5, 9, 13…, for 4 workers).
-* Workers use an atomic counter to track total attempts across all goroutines.
-* A mutex protects the shared "found" flag and the winning result.
-* A `context.Context` is cancelled as soon as one worker finds a valid nonce, so the remaining workers stop promptly.
-
-This improves mining performance by using multiple CPU cores to search the nonce space in parallel, at the cost of some duplicated work near the moment a winner is found (a worker may complete one more hash attempt before it observes the cancellation).
-
----
-
-# 4.5 Transactions and Ledger
-
-The ledger system manages transactions and balances.
-
-Implemented features:
-
-* Sender and receiver transactions
-* Integer-based transaction amounts
-* Pending transaction pool
-* Balance calculation from blockchain history
-* Transaction validation (non-positive amount rejection, insufficient-balance rejection)
-* Double-spending prevention among pending transactions
-
-Balances are not stored permanently. Instead, they are recalculated by replaying every transaction in every block on top of the initial balances (`CalculateBalances`).
-
----
-
-# 4.6 Digital Signatures and Wallets
-
-ECDSA-based digital signatures (P-256 curve) were implemented to authenticate transactions.
-
-Implemented features:
-
-* Wallet key generation
-* Private and public key handling, persisted to `wallets/<name>.json`
-* Transaction signing over `sender:receiver:amount`
-* Signature verification using the sender's public key
-* Invalid or fake signature rejection at the point a transaction is added to the pending pool
-
-Transaction flow:
-
-```
-Create Transaction
-        ↓
-Sign Transaction
-        ↓
-Verify Signature
-        ↓
-Check Balance
-        ↓
-Add to Pending Pool
-        ↓
-Mine Block
+```text
+Node configuration
+Blockchain and pending pool
+Known transaction IDs
+Known block hashes
+Read/write mutex
+HTTP router and handlers
 ```
 
-Transactions are signed using ECDSA over the P-256 elliptic curve. Public keys and signatures are stored using fixed-width 32-byte coordinates, ensuring reliable signing and verification without ambiguity.
+The configuration contains the node’s listening address and initial peer list.
+The initial list acts as a seed list. Nodes request peer lists from their seeds, recursively add new unique peers and register their own address with every contacted peer.
 
----
+For example:
 
-# 4.7 Merkle Root Implementation
-
-A Merkle tree is used to summarize a block's transactions: each transaction is hashed individually, and pairs of hashes are combined and re-hashed up the tree until a single root hash remains. This root is stored on the block and included in the block's overall hash.
-
-**Honest note on the current design:** in the present implementation, the block hash is computed over both the Merkle root *and* the raw transaction list (`Transactions:%v`) at the same time. This means tampering with a transaction is already caught by the raw-list term in the hash, independently of the Merkle root — the Merkle root is not yet load-bearing on its own. Its correctness is still checked separately during validation (any mismatch between a block's stored root and the recomputed root is rejected), so it does add an extra check, but the design does not yet realize the usual benefit of Merkle trees (being able to verify inclusion/integrity from the root alone without also hashing every raw transaction). A cleaner version of this design would drop the raw transaction list from the direct block hash and rely on the Merkle root exclusively, which would also make the Merkle root a strict prerequisite for producing a valid block (closing the bug described in Section 8/Known Limitations).
-
----
-
-# 4.8 Difficulty Retargeting
-
-Automatic difficulty adjustment was implemented in `AdjustDifficulty`.
-
-The system compares the real elapsed time (`Timestamp`, in Unix seconds) across the last `AdjustmentInterval` (5) blocks against a `TargetBlockTime` of 10 seconds per block:
-
-* If the actual time is less than half the expected time, difficulty increases by 1 (blocks are coming too fast).
-* If the actual time is more than double the expected time, difficulty decreases by 1, with a floor of 1 (blocks are coming too slow).
-
-Purpose:
-
-* Maintain a roughly consistent block creation time
-* Increase difficulty when blocks are mined too quickly
-* Reduce difficulty when mining becomes too slow
-
-This simulates real blockchain difficulty adjustment mechanisms. In local, low-difficulty use, blocks mine in well under a second (see the timing table in Section 7.2), which is far faster than the 10-second target — so in sustained local use the difficulty will tend to increase over time. The implementation limits the maximum mining difficulty to prevent excessive growth during long-running local simulations while still demonstrating automatic difficulty adjustment.
----
-
-# 4.9 Fork Resolution
-
-Fork resolution was implemented using a longest-valid-chain rule.
-
-Process:
-
-1. Receive a competing candidate chain.
-2. Reject it immediately if it is not longer than the current chain.
-3. Validate the candidate chain in full (hash, Merkle root, links, ordering, Proof of Work, balances).
-4. Replace the current chain with the candidate if it passes validation.
-
-Invalid or shorter chains are rejected. Before accepting a longer chain, the implementation verifies that the candidate shares the same genesis block as the current chain. This prevents replacing the blockchain with an unrelated but internally valid chain.
-
----
-
-# 5. Data Persistence
-
-Blockchain data is stored using JSON format in `chain.json`.
-
-Implemented features:
-
-* Save blockchain state (`SaveToFile`)
-* Load blockchain state (`LoadFromFile`)
-* Restore balances after restart (via replay, not a stored balance)
-* Validate loaded blockchain data before accepting it
-
-This save/validate/load path is covered directly by `storage_test.go`, which mines a block through `MinePendingTransactions`, saves it, reloads it, and checks that balances match. That specific path works correctly. As discussed in Section 7 and the Known Limitations note, the CLI mining command uses the same mining path as the tested implementation (MinePendingTransactions), ensuring consistent validation, transaction processing, and persistence.
----
-
-# 6. Testing
-
-The project includes automated tests covering:
-
-* SHA-256 hash generation and determinism
-* Merkle root calculation
-* Blockchain validation
-* Tamper detection
-* Mining difficulty
-* Concurrent mining
-* Difficulty adjustment
-* Fork resolution
-* Transaction validation
-* Double-spending prevention (within the pending pool)
-* Persistence (save/load/validate round trip)
-* Digital signature verification
-
-Testing command:
-
+```text
+Node A: localhost:8001
+Node B: localhost:8002
+Node C: localhost:8003
 ```
+
+Every node keeps its own blockchain and pending pool in memory. Nodes communicate using JSON over HTTP.
+
+### 3.2 HTTP wire format and endpoints
+
+Transactions, blocks and API responses are encoded as JSON using Go’s standard `encoding/json` package.
+
+The main read endpoints are:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/status` | Return height and head hash |
+| GET | `/peers` | Return known peers |
+| GET | `/mempool` | Return pending-pool size |
+| GET | `/balances` | Return confirmed balances |
+| GET | `/chain` | Return the complete chain |
+| GET | `/blocks?from=n` | Return blocks beginning at index `n` |
+| GET | `/nonce?address=x` | Return the sender’s next nonce |
+
+The state-changing endpoints are:
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/transactions` | Receive a signed transaction |
+| POST | `/blocks` | Receive an already-mined block |
+| POST | `/mine` | Mine the running node’s pending transactions |
+| GET | `/merkle-proof?block=<index>&transaction=<id>` | Return a Merkle inclusion proof for one transaction |
+| POST | `/peers` | Register a node as a peer |
+
+The custom `X-Node-Address` header identifies the peer that forwarded a transaction or block. The receiver excludes that peer when forwarding, preventing an immediate return to the sender.
+
+## 4. Transaction Security
+
+### 4.1 Ed25519 wallets
+
+Each wallet contains an Ed25519 public/private key pair.
+
+- The private key signs transactions and must remain secret.
+- The public key verifies signatures and may be shared.
+- The sender address is the SHA-256 hash of the public key.
+- Wallet files use restrictive file permissions where supported.
+
+### 4.2 Signing payload
+
+The deterministic signing payload contains:
+
+```text
+Sender
+Sender address
+Receiver
+Amount
+Nonce
+```
+
+The payload is encoded using a fixed Go structure and JSON field order. The private key signs those bytes.
+
+If the receiver, amount, address or nonce changes afterward, the recreated payload differs and Ed25519 verification fails.
+
+### 4.3 Transaction nonce
+
+The transaction nonce increases independently for every sender:
+
+```text
+Alice transaction 1 → nonce 1
+Alice transaction 2 → nonce 2
+Bob transaction 1   → nonce 1
+```
+
+The nonce prevents an exact signed transaction from being processed repeatedly. Because it is included in the signed payload, an attacker cannot change the nonce without invalidating the signature.
+
+The transaction nonce is different from the mining nonce. A mining nonce changes repeatedly until the block hash satisfies Proof of Work.
+
+### 4.4 Transaction ID
+
+A transaction ID is calculated using SHA-256 over the complete signed transaction data:
+
+```text
+Sender
+Sender address
+Receiver
+Amount
+Nonce
+Public key
+Signature
+```
+
+The ID is represented as 64 hexadecimal characters.
+
+Every receiving node recalculates the ID instead of trusting the received `ID` field. The same signed transaction produces the same ID on every node.
+
+The nonce prevents replayed spending, while the transaction ID supports network de-duplication.
+
+## 5. Gossip and De-duplication
+
+### 5.1 Transaction gossip
+
+Transaction handling follows this process:
+
+```text
+Receive transaction JSON
+→ Recalculate transaction ID
+→ Check whether ID is already known
+→ Verify sender address and Ed25519 signature
+→ Validate nonce and balance
+→ Add transaction to pending pool
+→ Remember transaction ID
+→ Forward to peers except the sender
+```
+
+Invalid and duplicate transactions are not forwarded.
+
+### 5.2 Block gossip
+
+A block is identified using its block hash.
+
+A received block is already mined, so the receiving node does not repeat Proof of Work. Instead, it:
+
+```text
+Checks duplicate block hash
+→ Builds a temporary candidate chain
+→ Validates the complete chain
+→ Appends the valid block
+→ Removes its confirmed transactions from pending
+→ Remembers block and transaction IDs
+→ Forwards it to peers
+```
+
+Blocks that do not extend the current head trigger synchronization or fork-resolution logic instead of being blindly appended.
+
+### 5.3 Gossip message cost
+
+The gossip-cost experiment used three fully connected nodes. Each node knew the other two nodes as peers. Before the experiment, all nodes had the same genesis block and an empty pending pool.
+
+One signed transaction was submitted to Node A:
+
+```text
+Transaction ID:
+e9313e9f7687d56d74e635491f0ff5e6313f2151b86829f1242a86c0b747b3ff
+```
+
+The logs showed the following propagation:
+
+```text
+Client → Node A: initial submission
+Node A → Node B: accepted
+Node B → Node C: accepted
+Node C → Node A: duplicate ignored
+Node A → Node C: duplicate ignored
+```
+
+The measured message counts were:
+
+| Measurement                     | Count |
+| ------------------------------- | ----: |
+| Initial client submission       |     1 |
+| Peer-to-peer gossip POSTs       |     4 |
+| Total transaction POST requests |     5 |
+| Nodes accepting the transaction |     3 |
+| Duplicate deliveries detected   |     2 |
+
+Each node added the transaction exactly once. Although two redundant deliveries occurred, neither duplicate was added or forwarded again.
+
+Every node recalculated the deterministic transaction ID and checked its `seenTransactions` map before adding or forwarding the transaction. Once an ID was already known, the node returned a duplicate response and stopped processing it. This prevented the transaction from circulating endlessly.
+
+The experiment demonstrates that the simple full-mesh approach creates some redundant traffic, but de-duplication bounds the propagation and prevents repeated state changes. A larger network could reduce redundant messages using time-to-live values, randomized peer selection or more complete message-origin tracking.
+
+
+## 6. Blockchain Synchronization
+
+A new or behind node first requests a peer’s `/status` endpoint.
+
+If the peer is ahead on the same branch, the local node requests:
+
+```http
+GET /blocks?from=<local-height+1>
+```
+
+Each missing block is validated and appended in order. This is necessary because every block’s `PreviousHash` depends on the block before it.
+
+The synchronization flow is:
+
+```text
+Request peer height
+→ Compare local height and head
+→ Download missing blocks
+→ Validate each block
+→ Append each valid block
+→ Confirm equal final height
+```
+
+If missing blocks cannot connect, the peer may be on a competing branch. The local node then downloads the complete peer chain through `/chain` and starts fork resolution.
+
+At startup, a node tries its configured peers. If one peer is offline, it tries the next. If synchronization fails completely, the server still starts because peers may only be temporarily unavailable.
+
+## 7. Fork Resolution and Reorganization
+
+### 7.1 Cumulative Proof-of-Work
+
+The original project used only chain length. Assessment 2 compares cumulative Proof-of-Work.
+
+For hexadecimal difficulty `d`, estimated block work is:
+
+\[
+16^d
+\]
+
+Total chain work is the sum of all block-work values.
+
+A candidate is considered only when:
+
+```text
+Candidate cumulative work > Local cumulative work
+```
+
+Equal-work and weaker chains are rejected. This avoids unnecessary switching between equally strong branches.
+
+The candidate must still pass:
+
+- Shared genesis validation
+- Merkle-root verification
+- Block-hash verification
+- Previous-hash linkage
+- Index and timestamp checks
+- Required difficulty checks
+- Proof-of-Work checks
+- Transaction ID and signature checks
+- Nonce validation
+- Balance validation
+
+A chain cannot win merely by claiming a high difficulty because validation checks whether that difficulty was actually required and whether its hash satisfies it.
+
+### 7.2 Finding the fork point
+
+The fork point is the last block shared by both branches.
+
+Example:
+
+```text
+Local:     Genesis → Block 1 → Block 2A
+Candidate: Genesis → Block 1 → Block 2B → Block 3B
+```
+
+The fork point is Block 1. Block 2A becomes orphaned when the candidate is selected.
+
+### 7.3 Ledger rebuilding
+
+Balances are not copied from the old branch. They are recalculated using:
+
+```text
+Initial balances
+→ Replay transactions from the selected chain
+→ Produce confirmed balances
+```
+
+Transactions in orphaned blocks no longer affect confirmed balances.
+
+The node then rebuilds its pending pool:
+
+1. Save existing pending transactions.
+2. Collect transactions from orphaned blocks.
+3. Remove transactions already confirmed in the selected chain.
+4. Remove duplicates.
+5. Revalidate signatures, IDs, nonces and balances.
+6. Return only valid transactions to pending.
+
+This prevents valid orphaned transactions from being silently lost while also preventing invalid or already-confirmed transactions from being processed twice.
+
+## 8. Race-Free Shared State
+
+Go’s HTTP server can handle several requests concurrently. For example, one request may read balances while another receives a transaction or mines a block.
+
+The node protects shared state using `sync.RWMutex`.
+
+Read locks are used for:
+
+- Status
+- Mempool size
+- Balances
+- Chain dump
+- Missing-block responses
+- Nonce lookup
+
+Write locks are used for:
+
+- Adding transactions
+- Accepting blocks
+- Mining
+- Synchronization
+- Fork resolution
+- Rebuilding de-duplication maps
+
+Network forwarding is performed after releasing the write lock. Otherwise, an offline peer could keep the blockchain locked during an HTTP timeout.
+
+The project was tested using:
+
+```bash
+go test -race ./...
+```
+
+No data races were reported.
+
+## 9. Experiments and Results
+
+### 9.1 Three-node transaction gossip
+
+The cluster launcher started:
+
+```text
+Node A → localhost:8001
+Node B → localhost:8002
+Node C → localhost:8003
+```
+
+A signed transaction was submitted to Node A:
+
+```bash
+go run . submit localhost:8001 Alice Bob 20
+```
+
+Before mining:
+
+| Node | Pending transactions |
+|---|---:|
+| Node 8001 | 1 |
+| Node 8002 | 1 |
+| Node 8003 | 1 |
+
+This demonstrated that a transaction submitted to one node propagated to every node.
+
+### 9.2 Block propagation
+
+Mining was requested from Node A:
+
+```bash
+curl.exe -X POST http://localhost:8001/mine
+```
+
+The mined block had:
+
+```text
+Index: 1
+Difficulty: 4
+Nonce: 131135
+Hash: 0000f6b4ae122cfa7c8701d01a177e5b8b309d3641792316ea2b7c221ad76293
+```
+
+All nodes reported:
+
+```text
+Height: 1
+Head hash: 0000f6b4ae122cfa7c8701d01a177e5b8b309d3641792316ea2b7c221ad76293
+```
+
+After propagation:
+
+| Node | Pending transactions |
+|---|---:|
+| Node 8001 | 0 |
+| Node 8002 | 0 |
+| Node 8003 | 0 |
+
+This demonstrated mining, block gossip, independent validation and network convergence.
+
+### 9.3 New-node synchronization
+
+The synchronization test created:
+
+```text
+Peer node:  Genesis → Block 1
+Local node: Genesis
+```
+
+The local node requested the peer’s height and downloaded Block 1. After validation, both nodes had the same height and head hash.
+
+### 9.4 Live fork and reorganization experiment
+
+Two independent nodes were started without configured peers:
+
+```text
+Node A: localhost:8001
+Node B: localhost:8002
+```
+
+Because the nodes were disconnected, a different transaction was submitted and mined on each node:
+
+```text
+Node A Block 1:
+Alice → Bob, amount 20
+Hash: 0000a4c43efe3a796c99787fa7713cee43f8847ac99f79f95cc7270a758d9b22
+
+Node B Block 1:
+Charlie → Bob, amount 10
+Hash: 0000fa6a20a3602eacde188774b4b9df9b027bbab6867e5fb094f22b3bbf0dab
+```
+
+Both nodes were at height 1, but their different head hashes confirmed that a fork had formed.
+
+Another transaction was then submitted and mined on Node B:
+
+```text
+Charlie → Alice, amount 5
+
+Node B Block 2 hash:
+0000a147dcf5120002ece47b63be19874fa915a09691b17fffe4c97e498db123
+```
+
+The chains were then:
+
+```text
+Node A: Genesis → Block 1A
+Node B: Genesis → Block 1B → Block 2B
+```
+
+Node B therefore had greater cumulative Proof of Work. Its latest block was sent to Node A with Node B’s address in the `X-Node-Address` header, simulating reconnection.
+
+Node A produced the following relevant logs:
+
+```text
+Competing block received; synchronizing with: localhost:8002
+Synchronization started with: localhost:8002
+Missing blocks downloaded: 1 from localhost:8002
+Competing chain detected from: localhost:8002
+Chain reorganization completed: fork point 0 orphaned transactions returned 1
+Stronger chain adopted from: localhost:8002
+```
+
+Node A could not append Block 2B directly because it did not contain Block 1B. It therefore downloaded Node B’s complete chain, validated it, compared cumulative Proof of Work, found the fork point at genesis and adopted Node B’s stronger chain.
+
+Block 1A was orphaned. Its Alice-to-Bob transaction was still valid on the selected chain, so it was returned to Node A’s pending pool:
+
+```text
+Node A mempool size: 1
+```
+
+After reorganization, both nodes reported height 2 and the same head hash:
+
+```text
+Node A height: 2
+Node B height: 2
+
+Shared head:
+0000a147dcf5120002ece47b63be19874fa915a09691b17fffe4c97e498db123
+
+Head-hash equality check: true
+```
+
+This experiment demonstrated automatic fork detection, synchronization, cumulative-work chain selection, chain reorganization, orphaned-transaction recovery and final network convergence.
+
+
+### 9.5 Test results
+
+The following checks completed successfully:
+
+```bash
+gofmt -w .
+go vet ./...
 go test ./...
+go test -race ./...
 ```
 
-All existing unit tests pass. However, test coverage currently exercises each package's functions individually rather than the exact code path wired up to the CLI (`main.go`) — some of the limitations noted in this report (see Section 8) were only found by running the compiled program end-to-end (`go run . add …`, `go run . mine`, `go run . print`) rather than through `go test`. A useful follow-up would be a small integration test that shells out to the built binary and checks its actual output/exit behaviour.
+Tests cover:
 
----
+- Ed25519 signing and tamper rejection
+- Deterministic addresses and transaction IDs
+- Nonce replay protection
+- Pending double-spending
+- Transaction gossip and de-duplication
+- Block gossip
+- HTTP introspection
+- Missing-block synchronization
+- Cumulative-work calculation
+- Fork-point detection
+- Reorganization
+- Orphaned-transaction recovery
+- Race-free operation
+### 9.6 Peer-discovery experiment
 
-# 7. Research Component
+Three nodes were started with the following initial configuration:
 
-## 7.1 Tamper-evidence experiment
-
-Using the actual `blockchain` package, we built a small chain of two mined blocks, validated it, then modified a transaction amount inside the first non-genesis block and validated again.
-
-**Setup:**
-```go
-bc := blockchain.NewBlockchain()
-bc.AddBlock([]ledger.Transaction{{Sender: "Alice", Receiver: "Bob", Amount: 20}})
-bc.AddBlock([]ledger.Transaction{{Sender: "Bob", Receiver: "Charlie", Amount: 10}})
+```text
+Node A: seed Node B
+Node B: seed Node A
+Node C: seed Node A only
 ```
 
-**Before tampering:**
-```
-=== BEFORE TAMPERING ===
-Blockchain is valid
-```
+Node C requested Node A's peer list and produced:
 
-**Tampering:**
-```go
-bc.Blocks[1].Transactions[0].Amount = 9999
+```text
+Peer discovered: localhost:8002
 ```
 
-**After tampering:**
+Node C then registered its own address with Node A and the newly discovered Node B. The final `/peers` responses were:
+
+```text
+Node A: [localhost:8002 localhost:8003]
+Node B: [localhost:8001 localhost:8003]
+Node C: [localhost:8001 localhost:8002]
 ```
-=== AFTER TAMPERING ===
-Blockchain is invalid: block 1: invalid Merkle root
+
+This demonstrated that a new node can join through one seed address and that two-way registration allows every node to learn about the new participant. Duplicate peers and each node's own address are rejected. Peer-list snapshots and updates are protected by `sync.RWMutex`, and the complete suite passed the Go race detector.
+### 9.7 Docker Compose cluster experiment
+
+A multi-stage Dockerfile was used to compile the Go application and copy only the final executable into a small Alpine runtime image. The application runs as a non-root user. A `.dockerignore` file excludes private wallets, generated chains and Git history from the build context.
+
+The complete cluster was started with:
+
+```bash
+docker compose up --build -d
 ```
 
-**Why this check catches it:** `ValidateChain` recomputes each block's Merkle root from its stored transactions and compares it against the root that was stored on the block at mining time (`block.CalculateMerkleRoot(current.Transactions) != current.MerkleRoot`). Changing the transaction amount changes the leaf hash that feeds the Merkle tree, which changes the root, so the recomputed root immediately disagrees with the stored one — this is the first check `ValidateChain` runs per block, before it even reaches the block-hash or previous-hash checks. (As noted in Section 4.7, the same edit would also be caught independently by the block's own hash check, since the raw transaction list is also part of the block hash input — either check alone would have detected this tamper.)
+Docker Compose started three healthy containers and exposed their APIs through host ports 8001, 8002 and 8003. Each node listened on `0.0.0.0` inside its container while advertising its Docker DNS address, such as `node-a:8001`, to peers.
 
-## 7.2 Difficulty versus effort experiment
+Node C started with only Node A as its seed and discovered Node B:
 
-We mined the same transaction into a block at difficulty levels 1 through 6 using the real `blockchain.MineBlock` function, varying the block's timestamp on each trial so every attempt is an independent random draw rather than a repeat of the same fixed input (SHA-256 is deterministic, so re-hashing identical fields would always take the identical number of attempts). We averaged multiple trials per difficulty level (more trials at low difficulty, fewer at high difficulty, since high-difficulty mining takes much longer per attempt):
+```text
+Node A: [node-b:8002 node-c:8003]
+Node B: [node-a:8001 node-c:8003]
+Node C: [node-a:8001 node-b:8002]
+```
 
-| Difficulty | Avg. Attempts | Avg. Time  | Trials |
-|-----------:|--------------:|-----------:|-------:|
-| 1          | 14            | 0.07 ms    | 30     |
-| 2          | 220           | 0.60 ms    | 30     |
-| 3          | 5,600         | 14.5 ms    | 20     |
-| 4          | 100,963       | 264 ms     | 10     |
-| 5          | 1,079,431     | 2.83 s     | 5      |
-| 6          | 10,328,434    | 26.9 s     | 3      |
+A signed Alice-to-Bob transaction was submitted to Node A. Before mining, all three pending pools contained one transaction. Node A then mined the transaction, and block gossip caused all nodes to reach height 1 with the same head hash:
 
-**Is it linear, or does it grow faster?** It grows much faster than linearly — roughly exponentially. Each difficulty level requires one additional leading hexadecimal zero digit in the hash, and since SHA-256 output is effectively uniformly random, each additional required hex digit multiplies the odds against success by 16 (each hex digit encodes 4 bits, and 2⁴ = 16). So the *expected* number of attempts to find a valid nonce roughly follows 16^difficulty: about 16 attempts at difficulty 1, ~256 at difficulty 2, ~4,096 at difficulty 3, ~65,536 at difficulty 4, ~1,048,576 at difficulty 5, and ~16,777,216 at difficulty 6. Our measured averages track this order of magnitude reasonably well (e.g. ~1.08M at difficulty 5 versus an expected ~1.05M), with individual samples varying quite a bit around that expectation — mining time until success is a geometrically-distributed random variable, so any single attempt can get "lucky" or "unlucky" by a wide margin even though the trend across difficulty levels is clearly exponential rather than linear.
+```text
+0000de05a376990354bc99c03fc1c7299e5b0c82...
+```
 
-Practically, this confirms the project's default difficulty of 4 is a reasonable choice for a laptop-friendly toy chain (a few hundred milliseconds per block), while difficulty 6 already costs closer to half a minute per block on this machine — well past the "should finish in seconds" guidance — which is part of why we flagged the current unbounded difficulty-retargeting growth (Section 4.8) as something to cap in a future iteration.
+The equality check across all three head hashes returned `true`. This demonstrated that the one-command container cluster supports peer discovery, transaction gossip, mining, block gossip and network convergence.
 
-## 7.3 Design write-up
+## 10. Challenges and Solutions
 
-**Hashing scheme.** `block.CalculateHash` builds a single string from the block's fields, in this fixed order — `Index`, `Timestamp`, `Transactions` (the raw transaction slice, using Go's default `%v` formatting, which includes every field of every transaction: sender, receiver, amount, signature, and public key), `PreviousHash`, `MerkleRoot`, `Nonce`, and `Difficulty` — and hashes the resulting string with SHA-256. Every field except the block's own `Hash` feeds into the hash, which is what makes it self-referential and tamper-evident: if any of those fields change, the recomputed hash changes. As discussed in Section 4.7, both the raw transaction list and the Merkle root are currently part of this input, which is redundant; a future revision should hash only the Merkle root (plus the other non-transaction fields) so the Merkle root becomes the sole authority over transaction integrity.
+### Challenge 1: Distinguishing the two nonces
 
-**Validation guarantees.** `ValidateChain` walks the chain from the genesis block forward and checks, per block: (1) the stored Merkle root matches a fresh recomputation from that block's transactions, (2) the stored hash matches a fresh recomputation of the whole block, (3) the block's `PreviousHash` matches the actual hash of the preceding block, (4) the block's `Index` is exactly one more than the previous block's, (5) its `Timestamp` is not earlier than the previous block's, and (6) its hash satisfies its own recorded `Difficulty` as a leading-zero-hex-digit target. Finally, it replays every transaction in the whole chain against the initial balances and rejects the chain if any replayed transaction is non-positive or overdraws its sender. Together, checks (1)–(3) mean that changing anything in an already-mined block — a transaction, the nonce, the previous-hash pointer — breaks that block's own hash and/or Merkle root, and also breaks the very next block's previous-hash link, so the tamper cannot be made invisible without re-mining every block from the tampered one to the tip. Check (6) guarantees every block actually paid the proof-of-work cost its recorded difficulty implies. 
+The mining nonce and transaction nonce initially appeared to conflict.
 
-## 7.4 Discussion questions
+The solution was to treat them separately:
 
-**How does the previous-hash link make tampering with an old block impractical in a real chain, even though it is trivial in your local toy?**
+- Block nonce: repeatedly changed during Proof of Work.
+- Transaction nonce: incremented once per sender transaction to prevent replay.
 
-Every block commits to the hash of the block before it, and that hash depends on everything in that earlier block. So changing anything in an old block changes its hash, which breaks the `PreviousHash` field stored in the very next block — and fixing that means re-mining the next block (finding a new valid nonce for it), which changes *its* hash, which breaks the block after that, and so on all the way to the tip of the chain. In a real, distributed network, "the chain" isn't one file an attacker controls — it's whatever the honest majority of independently-run nodes have collectively extended, each extension backed by real proof-of-work. To rewrite history, an attacker would have to out-mine that entire honest network from the point of the tampered block onward, racing against everyone else's honest mining, which becomes exponentially more expensive the further back the tampered block is and the more total hash power the honest network has. In our toy, none of that distributed competition exists: one process holds the only copy of the chain, there's no network to reject a rewritten history, and re-mining a handful of low-difficulty blocks takes well under a second (Section 7.2), so an attacker with access to the process can simply rewrite and re-mine the whole tail instantly. The mechanism (hash-linking) is identical in both cases; what's missing locally is the distributed, competitive re-mining cost that makes the same mechanism meaningful at scale.
+### Challenge 2: Verifying transactions on other nodes
 
-**Proof-of-work is one way to decide who may add the next block. Name at least one alternative and give one advantage and one drawback versus proof-of-work.**
+The original verification depended on a locally stored wallet. Other network nodes should not possess the sender’s private wallet.
 
-Proof-of-stake selects the next block producer roughly in proportion to how much stake (currency) they have locked up, rather than how much computation they can burn. Its main advantage over proof-of-work is efficiency: it doesn't require racing thousands of machines to solve throwaway hash puzzles, so it uses a tiny fraction of the energy for a comparable level of security. Its main drawback is that it ties block-production power directly to existing wealth in the system, which can reinforce a "rich get richer" dynamic and makes the barrier to participating in consensus a financial one rather than an operational one — it also introduces subtler design problems (like the "nothing at stake" problem, where validators have little cost to voting on multiple competing chains at once) that proof-of-work's physical cost structure avoids by construction.
+Verification was changed to use only public transaction information:
 
-**List three concrete ways your toy differs from a production blockchain, and sketch how you'd add one of them.**
+- Public key
+- Derived sender address
+- Signature
+- Signed payload
 
-1. *No peer-to-peer consensus among independent nodes.* This project's "chain" is the state of a single local process; there is no network of nodes independently validating and gossiping blocks, and no way for two honest participants to actually disagree and resolve it over a network.
-2. *No finality.* `ResolveFork` will replace the entire local chain with any longer, internally valid candidate it's given, at any depth — there's no notion of a block being "final" after enough confirmations, the way many production chains treat old blocks as effectively immutable.
-3. *Signatures aren't re-checked by chain validation itself.* Transactions are signed and verified before they enter the pending pool, but `ValidateChain` doesn't independently re-verify each transaction's signature against its sender when validating a loaded or received chain — it relies on the block hash to catch any change to the signature bytes, rather than re-running signature verification as its own explicit check.
+### Challenge 3: Preventing gossip loops
 
-*Sketch — adding real peer-to-peer networking:* each node would run its own copy of this program plus a small network listener; on receiving a new transaction or block from a peer, it would run it through the exact same `AddTransaction`/`ValidateChain` logic already implemented here before accepting it locally, and would re-broadcast anything it accepted to its own peers. When a node received a full candidate chain longer than its own, it would call the existing ResolveFork, which already verifies that the candidate shares the same genesis block before replacing the local chain. A production implementation would extend this with network-level peer discovery, block propagation, and consensus handling. The core validation and fork-choice logic in this project would not need to change much — the main new work would be the networking layer (peer discovery, message passing, and re-broadcast) around it.
+Nodes could repeatedly forward the same transaction or block.
 
----
+The solution was:
 
-# 8. Known Limitations
+- Deterministic transaction IDs
+- Block-hash identifiers
+- Per-node known-ID maps
+- Sender-node headers
+- Duplicate detection before forwarding
 
-Although the simulator implements the major blockchain concepts required for the assessment, it remains a simplified educational project.
+### Challenge 4: Safely receiving mined blocks
 
-Current limitations include:
+Calling the original `AddBlock()` would mine another block instead of accepting the received block.
 
-No peer-to-peer networking or distributed node communication.
-No transaction fees or mining rewards.
-Wallets are stored locally without encryption or password protection.
-The blockchain operates as a single-node system without real network consensus.
-Merkle roots are included in block hashes, but transaction data is also hashed directly, making the Merkle root partially redundant in the current design.
+A separate `AddReceivedBlock()` path was implemented. It validates an already-mined block using a temporary candidate chain before modifying local state.
 
----
+### Challenge 5: Recovering from competing branches
 
-# 9. Project Challenges and Solutions
+Missing-block synchronization alone fails when a peer’s new block references a different parent.
 
-## Challenge 1: Maintaining Blockchain Integrity
+The node now falls back to downloading the full peer chain, comparing cumulative work and performing a reorganization.
 
-**Problem:** Changing block data could make the blockchain invalid without anyone noticing.
+### Challenge 6: Avoiding data races and deadlocks
 
-**Solution:** Implemented SHA-256 hashing, a Merkle root per block, and a chain-wide validation routine that recomputes and cross-checks both on every block (Section 7.1 demonstrates this catching a tampered transaction).
+HTTP handlers access shared blockchain state concurrently. Incorrect lock placement caused risks such as double unlock or calling a locking function while already holding the same lock.
 
----
+The solution was to use clear lock paths:
 
-## Challenge 2: Preventing Invalid Transactions
+```text
+Lock
+→ Modify shared state
+→ Unlock exactly once
+→ Perform network calls
+```
 
-**Problem:** Users could attempt transactions without enough balance, or with non-positive amounts.
+Race detection was used to verify the final implementation.
+## 11. Discussion Questions
 
-**Solution:** Implemented balance verification (`ValidateTransaction`) and transaction replay validation (`CalculateBalances`/`ValidateBalances`) so every transaction is checked both when it's added to the pending pool and again when the whole chain is validated.
+### 11.1 Why agreement is probabilistic and what a 51 percent attack is
 
----
+The cumulative Proof-of-Work rule allows independent nodes to select the valid chain containing the most total mining work. Normally, honest miners continue adding blocks to the same chain, causing it to become increasingly difficult for a competing branch to catch up.
 
-## Challenge 3: Improving Mining Performance
+However, agreement is probabilistic rather than immediately permanent. Two miners may find different valid blocks at nearly the same time, temporarily creating two branches. Nodes may initially receive and follow different branches. The network converges when one branch accumulates more Proof of Work, but there remains a decreasing probability that a competing branch could later overtake it.
 
-**Problem:** Single-threaded mining is slower than it needs to be on a multi-core machine.
+A 51 percent attack occurs when one miner or coordinated group controls most of the network’s total mining power. The attacker could build a private chain faster than the honest network and later publish it as the stronger chain. This could reorganize recent blocks and allow the attacker to reverse their own transactions, enabling double-spending. However, control of mining power does not allow the attacker to forge another user’s Ed25519 signature or spend funds without the corresponding private key.
 
-**Solution:** Implemented concurrent mining using goroutines, an atomic attempt counter, a mutex-protected result, and context cancellation so multiple workers can search different parts of the nonce space in parallel and stop cleanly once one succeeds.
+In this small toy network, a 51 percent attack is easier because there are very few miners. The implementation defends against invalid chains by checking hashes, Proof of Work, transaction signatures, nonces and balances, but it cannot prevent a majority of mining power from producing a stronger valid chain.
+### 11.2 Finality and confirmations
 
----
+Finality describes the level of certainty that an accepted transaction will remain permanently recorded in the blockchain. Hard finality means that once a transaction is finalized, it cannot later be reversed.
 
-## Challenge 4: Handling Blockchain Forks
+This small Proof-of-Work blockchain does not provide hard finality. A transaction may be included in the current chain but later removed if the network receives and adopts a competing valid chain with greater cumulative Proof of Work. The removed block becomes orphaned, and its transactions may return to the pending pool if they remain valid.
 
-**Problem:** Multiple valid chains may exist (e.g. two competing histories).
+Proof-of-Work networks reduce this risk by waiting for confirmations. A transaction has its first confirmation when it is included in a mined block. Each additional block built on top of that block adds another confirmation. Replacing an older transaction would require rebuilding its block and all the work performed after it.
 
-**Solution:** Implemented a longest-valid-chain rule (`ResolveFork`) that only accepts a candidate chain if it is both longer and passes full chain validation. As noted in Section 8, this rule doesn't yet check for shared ancestry with the current chain, which is a planned follow-up.
+Therefore, more confirmations make a successful reorganization increasingly unlikely. However, confirmations provide probabilistic confidence rather than an absolute guarantee. In this toy network, the protection is much weaker than in a large real network because there are only a few miners and comparatively little total mining power.
+### 11.3 Signature protection and malicious peers
 
----
+Ed25519 signatures allow nodes to verify that a transaction was authorized by the holder of the corresponding private key. Because the sender address, receiver, amount and transaction nonce are included in the signed payload, changing any of these fields after signing causes verification to fail. Signatures therefore prevent transaction forgery and unauthorized modification.
 
-# 10. Conclusion
+However, signatures do not prove that a peer is honest. A malicious peer could repeatedly send an old valid transaction in an attempt to process the same payment more than once. The signature would still be valid because the transaction was originally authorized.
 
-The Toy Blockchain and Ledger Simulator implements the major concepts of blockchain systems: block/genesis structure, SHA-256 and Merkle-root hashing, Proof-of-Work consensus (both sequential and concurrent), signed transactions and ledger replay, difficulty retargeting, fork resolution, and JSON persistence, all backed by a passing unit test suite.
+The node defends against this replay attempt using transaction nonces and deterministic transaction IDs. The nonce must be the next expected value for the sender, so an already-confirmed transaction has an old nonce and is rejected. The transaction ID and de-duplication map also prevent the same transaction from being repeatedly added or forwarded through the network.
 
-During development, several implementation issues were identified and corrected, including CLI mining consistency, signature encoding, fork validation, and difficulty limits. These improvements increased the reliability and correctness of the final implementation.
+A malicious peer could also send invalid blocks or a fabricated chain. Each node independently verifies the block hash, previous-hash link, Merkle root, required difficulty, Proof of Work, transaction signatures, nonces and resulting balances. A candidate chain is adopted only when it is fully valid and contains more cumulative Proof of Work than the local chain.
 
-This project provided practical experience in designing and implementing a blockchain-based backend system in Go, including the value of testing the exact path a user actually exercises, not just the underlying library functions.
+## 12. Known Limitations
+
+The implementation is educational and is not suitable for production use.
+
+Limitations include:
+
+
+- Unreachable peers are not permanently removed.
+- HTTP communication is not encrypted.
+- Administrative endpoints such as `/mine` are unauthenticated.
+- Wallet files are not password-encrypted.
+- There are no transaction fees or mining rewards.
+- There is no smart-contract execution.
+- Network nodes primarily keep independent in-memory state.
+- Separate persistent data directories and automatic restart restoration are not implemented.
+- The simple full-mesh gossip strategy creates redundant messages.
+- There is no finality rule or Byzantine-fault-tolerant consensus.
+- The project is designed for a small local trusted network.
+
+## 13. Conclusion
+
+The project successfully extended a local blockchain simulator into a networked multi-node blockchain.
+
+The final system supports Ed25519-secured transactions, public-key-derived addresses, transaction nonces, deterministic transaction IDs, HTTP nodes, gossip, de-duplication, network mining, missing-block synchronization, cumulative-work fork resolution, reorganization and orphaned-transaction recovery.
+
+The three-node experiment demonstrated that transactions and blocks propagate across the network and that all nodes converge to the same blockchain head. Automated synchronization and fork tests demonstrated catch-up behavior and stronger-chain adoption. Go race detection confirmed that shared network state is accessed safely.
+
+The project provided practical experience with Go networking, JSON APIs, concurrency control, cryptographic validation, distributed-state synchronization and blockchain reorganization.
+
+## References
+
+1. The Go Authors, “Package net/http”: https://pkg.go.dev/net/http
+
+2. The Go Authors, “Package crypto/ed25519”: https://pkg.go.dev/crypto/ed25519
+
+3. The Go Authors, “Data Race Detector”: https://go.dev/doc/articles/race_detector
+
+4. Satoshi Nakamoto, “Bitcoin: A Peer-to-Peer Electronic Cash System”: https://bitcoin.org/bitcoin.pdf
+
+5. RFC 8032, “Edwards-Curve Digital Signature Algorithm (EdDSA)”: https://www.rfc-editor.org/rfc/rfc8032

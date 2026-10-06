@@ -1,10 +1,11 @@
 package wallet
 
 import (
-	"crypto/elliptic"
-	"crypto/x509"
+	"bytes"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -14,40 +15,31 @@ type walletFile struct {
 	PublicKey  string `json:"public_key"`
 }
 
-// Save a wallet to wallets/<name>.json
 func SaveWallet(name string, w *Wallet) error {
-
-	err := os.MkdirAll("wallets", 0755)
-	if err != nil {
-		return err
-	}
-
-	privateBytes, err := x509.MarshalECPrivateKey(w.PrivateKey)
-	if err != nil {
+	if err := os.MkdirAll("wallets", 0755); err != nil {
 		return err
 	}
 
 	data := walletFile{
-		PrivateKey: hex.EncodeToString(privateBytes),
-		PublicKey:  w.GetPublicKey(),
+		PrivateKey: hex.EncodeToString(w.PrivateKey),
+		PublicKey:  hex.EncodeToString(w.PublicKey),
 	}
 
-	bytes, err := json.MarshalIndent(data, "", "  ")
+	jsonBytes, err := json.MarshalIndent(data, "", "  ")
+
 	if err != nil {
 		return err
 	}
 
 	path := filepath.Join("wallets", name+".json")
 
-	return os.WriteFile(path, bytes, 0644)
+	return os.WriteFile(path, jsonBytes, 0600)
 }
 
-// Load wallets/<name>.json
 func LoadWallet(name string) (*Wallet, error) {
-
 	path := filepath.Join("wallets", name+".json")
 
-	bytes, err := os.ReadFile(path)
+	jsonBytes, err := os.ReadFile(path)
 
 	if err != nil {
 		return nil, err
@@ -55,34 +47,46 @@ func LoadWallet(name string) (*Wallet, error) {
 
 	var data walletFile
 
-	err = json.Unmarshal(bytes, &data)
-
-	if err != nil {
+	if err := json.Unmarshal(jsonBytes, &data); err != nil {
 		return nil, err
 	}
 
-	privateBytes, err := hex.DecodeString(data.PrivateKey)
+	privateKeyBytes, err := hex.DecodeString(data.PrivateKey)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid private key encoding: %w", err)
 	}
 
-	privateKey, err := x509.ParseECPrivateKey(privateBytes)
+	publicKeyBytes, err := hex.DecodeString(data.PublicKey)
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid public key encoding: %w", err)
 	}
 
-	privateKey.PublicKey.Curve = elliptic.P256()
+	if len(privateKeyBytes) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf(
+			"invalid private key size: got %d bytes",
+			len(privateKeyBytes),
+		)
+	}
 
-	// Recreate fixed-size public key
-	xBytes := make([]byte, 32)
-	yBytes := make([]byte, 32)
+	if len(publicKeyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf(
+			"invalid public key size: got %d bytes",
+			len(publicKeyBytes),
+		)
+	}
 
-	privateKey.PublicKey.X.FillBytes(xBytes)
-	privateKey.PublicKey.Y.FillBytes(yBytes)
+	privateKey := ed25519.PrivateKey(privateKeyBytes)
+	publicKey := ed25519.PublicKey(publicKeyBytes)
 
-	publicKey := append(xBytes, yBytes...)
+	derivedPublicKey := privateKey.Public().(ed25519.PublicKey)
+
+	if !bytes.Equal(publicKey, derivedPublicKey) {
+		return nil, fmt.Errorf(
+			"public key does not match private key",
+		)
+	}
 
 	return &Wallet{
 		PrivateKey: privateKey,

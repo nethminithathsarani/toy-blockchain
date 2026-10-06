@@ -87,3 +87,35 @@ func TestResolveForkRejectsInvalidChain(t *testing.T) {
 	}
 
 }
+func TestResolveForkUpdatesNextDifficulty(t *testing.T) {
+	localChain := NewBlockchain()
+	candidateChain := NewBlockchain()
+
+	// Mine enough blocks quickly to trigger a difficulty increase.
+	for i := 0; i < AdjustmentInterval; i++ {
+		candidateChain.AddBlock(nil)
+	}
+
+	if candidateChain.Difficulty == 4 {
+		t.Fatal(
+			"expected candidate difficulty to change after adjustment",
+		)
+	}
+
+	if err := localChain.ResolveFork(
+		candidateChain.Blocks,
+	); err != nil {
+		t.Fatalf(
+			"expected candidate chain to be adopted: %v",
+			err,
+		)
+	}
+
+	if localChain.Difficulty != candidateChain.Difficulty {
+		t.Fatalf(
+			"expected adopted difficulty %d, got %d",
+			candidateChain.Difficulty,
+			localChain.Difficulty,
+		)
+	}
+}

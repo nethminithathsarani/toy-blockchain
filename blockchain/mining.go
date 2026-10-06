@@ -48,7 +48,7 @@ func MineBlockConcurrent(b *block.Block, difficulty int, workers int) (int, time
 
 	var attempts int64
 	found := false
-
+	initialBlock := *b
 	for i := 0; i < workers; i++ {
 
 		wg.Add(1)
@@ -57,7 +57,7 @@ func MineBlockConcurrent(b *block.Block, difficulty int, workers int) (int, time
 
 			defer wg.Done()
 
-			tempBlock := *b
+			tempBlock := initialBlock
 
 			nonce := workerID
 
